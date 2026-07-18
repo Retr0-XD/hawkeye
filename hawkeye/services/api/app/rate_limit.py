@@ -1,10 +1,19 @@
-"""In-memory sliding-window rate limiting middleware.
+"""Global, shared-store rate limiting middleware.
 
-Protects the public API from abuse. Limits are applied per client IP using a
-fixed-window counter (simple, allocation-free, good enough for a single
-Cloud Run instance). For multi-instance deployments a shared store (e.g.
-Redis/Memorystore) would be needed, but Cloud Run's default concurrency plus
-this per-instance cap already blunts most abuse.
+Protects the public API from abuse. Unlike a per-instance in-memory counter,
+this limiter stores hit counts in **Firestore** so the cap is enforced
+*across all Cloud Run instances* — a hard global limit regardless of how many
+replicas are running. No new infrastructure is required (Firestore is already
+used by the API).
+
+Design:
+  - One document per (bucket, client-ip) under the `rate_limits` collection,
+    holding {start: epoch_seconds, count: int, updated: epoch_seconds}.
+  - Each request runs inside a Firestore **transaction** that atomically
+    reads, decides, and increments — so concurrent requests from the same IP
+    across different instances can't both slip past the limit.
+  - Old documents auto-expire via a Firestore TTL policy on the `updated`
+    field (enabled out-of-band; see deploy notes).
 
 Configuration (env, HAWKEYE_ prefix):
   HAWKEYE_RATE_LIMIT_ENABLED  - "true"/"false" (default true)
@@ -16,8 +25,8 @@ Configuration (env, HAWKEYE_ prefix):
 """
 from __future__ import annotations
 
+import logging
 import time
-from collections import defaultdict, deque
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -25,44 +34,66 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import get_settings
 
+logger = logging.getLogger("hawkeye.api.rate_limit")
+
 # Paths that are cheap health/info probes — never rate limited.
 _EXEMPT_PREFIXES = ("/livez",)
+_COLLECTION = "rate_limits"
 
 
-class RateLimiter:
-    """Fixed-window per-IP counter with separate buckets for auth endpoints."""
+class _MemoryStore:
+    """In-memory fallback used only if Firestore is unavailable."""
 
-    def __init__(self, max_requests: int, window: int, auth_max: int) -> None:
-        self.max = max_requests
+    def __init__(self, window: int) -> None:
         self.window = window
-        self.auth_max = auth_max
-        # ip -> deque of timestamps
-        self._hits: dict[str, deque[float]] = defaultdict(deque)
-        self._auth_hits: dict[str, deque[float]] = defaultdict(deque)
+        self._data: dict[str, tuple[float, int]] = {}
 
-    def _prune(self, bucket: deque[float], now: float) -> None:
-        while bucket and now - bucket[0] >= self.window:
-            bucket.popleft()
-
-    def is_allowed(self, ip: str, is_auth: bool) -> tuple[bool, int, int]:
-        """Return (allowed, remaining, retry_after_seconds)."""
-        now = time.monotonic()
-        bucket = self._auth_hits[ip] if is_auth else self._hits[ip]
-        limit = self.auth_max if is_auth else self.max
-        self._prune(bucket, now)
-        if len(bucket) >= limit:
-            retry_after = int(self.window - (now - bucket[0])) + 1
-            return False, 0, max(retry_after, 1)
-        bucket.append(now)
-        return True, max(limit - len(bucket), 0), 0
+    def check_and_increment(self, key: str, limit: int):
+        now = time.time()
+        start, count = self._data.get(key, (now, 0))
+        if now - start >= self.window:
+            start, count = now, 0
+        if count >= limit:
+            retry = int(self.window - (now - start)) + 1
+            return False, 0, max(retry, 1)
+        count += 1
+        self._data[key] = (start, count)
+        return True, max(limit - count, 0), 0
 
 
-def _client_ip(request: Request) -> str:
-    # Respect X-Forwarded-For (Cloud Run sets the real client IP here).
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+class _FirestoreStore:
+    """Global, transactional rate-limit store backed by Firestore."""
+
+    def __init__(self, db, window: int) -> None:
+        from google.cloud import firestore
+
+        self.db = db
+        self.window = window
+        self._col = db.collection(_COLLECTION)
+        self._txn = db.transaction()
+
+    def check_and_increment(self, key: str, limit: int):
+        from google.cloud import firestore
+
+        now = time.time()
+
+        @firestore.transactional
+        def _apply(transaction):
+            ref = self._col.document(key)
+            snap = ref.get(transaction=transaction)
+            data = snap.to_dict() or {}
+            start = data.get("start", now)
+            count = data.get("count", 0)
+            if now - start >= self.window:
+                start, count = now, 0
+            if count >= limit:
+                retry = int(self.window - (now - start)) + 1
+                return False, 0, max(retry, 1)
+            count += 1
+            transaction.set(ref, {"start": start, "count": count, "updated": now})
+            return True, max(limit - count, 0), 0
+
+        return _apply(self._txn)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -70,11 +101,33 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         settings = get_settings()
         self.enabled = str(settings.rate_limit_enabled).lower() != "false"
-        self.limiter = RateLimiter(
-            max_requests=settings.rate_limit_max,
-            window=settings.rate_limit_window,
-            auth_max=settings.rate_limit_auth_max,
-        )
+        self.window = settings.rate_limit_window
+        self.max = settings.rate_limit_max
+        self.auth_max = settings.rate_limit_auth_max
+        self._store = self._build_store(settings)
+
+    @staticmethod
+    def _build_store(settings) -> object:
+        try:
+            from .gcp_clients import get_firestore_client
+
+            db = get_firestore_client()
+            logger.info("Rate limiter using shared Firestore store (global cap)")
+            return _FirestoreStore(db, settings.rate_limit_window)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Firestore unavailable for rate limiter (%s); using in-memory "
+                "per-instance store (cap scales with instance count)",
+                exc,
+            )
+            return _MemoryStore(settings.rate_limit_window)
+
+    def _client_ip(self, request: Request) -> str:
+        # Respect X-Forwarded-For (Cloud Run sets the real client IP here).
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            return fwd.split(",")[0].strip()
+        return request.client.host if request.client else "unknown"
 
     async def dispatch(self, request: Request, call_next):
         if not self.enabled:
@@ -86,21 +139,29 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Authenticated user endpoints get a higher allowance.
         is_auth = path.startswith("/api/user") or path.startswith("/api/me")
-        ip = _client_ip(request)
-        allowed, remaining, retry_after = self.limiter.is_allowed(ip, is_auth)
+        ip = self._client_ip(request)
+        bucket = "auth" if is_auth else "pub"
+        limit = self.auth_max if is_auth else self.max
+        key = f"{bucket}:{ip}"
+
+        try:
+            allowed, remaining, retry_after = self._store.check_and_increment(key, limit)
+        except Exception as exc:  # noqa: BLE001
+            # Fail open: never block traffic because the limiter itself errored.
+            logger.warning("Rate limiter error (%s); allowing request", exc)
+            return await call_next(request)
+
         if not allowed:
             return JSONResponse(
                 status_code=429,
                 content={"detail": "Too many requests. Slow down and try again later."},
                 headers={
                     "Retry-After": str(retry_after),
-                    "X-RateLimit-Limit": str(self.limiter.auth_max if is_auth else self.limiter.max),
+                    "X-RateLimit-Limit": str(limit),
                     "X-RateLimit-Remaining": "0",
                 },
             )
         response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(
-            self.limiter.auth_max if is_auth else self.limiter.max
-        )
+        response.headers["X-RateLimit-Limit"] = str(limit)
         response.headers["X-RateLimit-Remaining"] = str(remaining)
         return response
