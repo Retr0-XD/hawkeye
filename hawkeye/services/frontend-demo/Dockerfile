@@ -3,6 +3,10 @@
 # Stage 2: serve the static build with a tiny Node server (no nginx needed).
 FROM node:20-slim AS build
 WORKDIR /app
+ARG VITE_DEMO_STUB
+ARG VITE_API_BASE
+ENV VITE_DEMO_STUB=$VITE_DEMO_STUB
+ENV VITE_API_BASE=$VITE_API_BASE
 COPY package.json ./
 RUN npm install
 COPY . .

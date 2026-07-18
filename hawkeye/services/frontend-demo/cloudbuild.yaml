@@ -1,6 +1,17 @@
+substitutions:
+  _VITE_DEMO_STUB: ""
+  _VITE_API_BASE: ""
 steps:
   - name: "gcr.io/cloud-builders/docker"
-    args: ["build", "-t", "us-central1-docker.pkg.dev/dice-master-the-platform/hawkeye/frontend-demo:latest", "."]
+    args:
+      - "build"
+      - "--build-arg"
+      - "VITE_DEMO_STUB=${_VITE_DEMO_STUB}"
+      - "--build-arg"
+      - "VITE_API_BASE=${_VITE_API_BASE}"
+      - "-t"
+      - "us-central1-docker.pkg.dev/dice-master-the-platform/hawkeye/frontend-demo:latest"
+      - "."
 images:
   - "us-central1-docker.pkg.dev/dice-master-the-platform/hawkeye/frontend-demo:latest"
 options:
