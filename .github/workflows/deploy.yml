@@ -96,8 +96,13 @@ jobs:
           submit_build () {
             local svc="$1"; local src="$2"; local extra="$3"
             local id
-            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
-                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            if [[ "$extra" == *"--config"* ]]; then
+              id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                    "$src" $extra --format="value(id)")
+            else
+              id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                    --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            fi
             echo "build $id for $svc"
             local status=""
             for i in $(seq 1 90); do
@@ -117,8 +122,13 @@ jobs:
           submit_build () {
             local svc="$1"; local src="$2"; local extra="$3"
             local id
-            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
-                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            if [[ "$extra" == *"--config"* ]]; then
+              id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                    "$src" $extra --format="value(id)")
+            else
+              id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                    --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            fi
             echo "build $id for $svc"
             local status=""
             for i in $(seq 1 90); do
