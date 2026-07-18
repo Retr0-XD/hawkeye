@@ -62,7 +62,14 @@ class _MemoryStore:
 
 
 class _FirestoreStore:
-    """Global, transactional rate-limit store backed by Firestore."""
+    """Global, atomic rate-limit store backed by Firestore.
+
+    Uses Firestore's atomic ``increment()`` transform for the hot path so
+    concurrent requests across instances can't both slip past the limit, and
+    a short transaction only when the sliding window needs to be reset (at
+    most once per window per IP). This avoids the pitfalls of running a full
+    read-modify-write transaction on every request.
+    """
 
     def __init__(self, db, window: int) -> None:
         from google.cloud import firestore
@@ -76,28 +83,47 @@ class _FirestoreStore:
         from google.cloud import firestore
 
         now = time.time()
-        txn = self.db.transaction()
+        ref = self._col.document(key)
 
-        # The @transactional decorator binds the transaction on first call and
-        # reuses it, so we define the function fresh each request with the
-        # current transaction captured in scope.
-        def _apply(transaction):
-            ref = self._col.document(key)
-            snap = ref.get(transaction=transaction)
-            data = snap.to_dict() or {}
-            start = data.get("start", now)
-            count = data.get("count", 0)
-            if now - start >= self.window:
-                start, count = now, 0
-            if count >= limit:
-                retry = int(self.window - (now - start)) + 1
-                return False, 0, max(retry, 1)
-            count += 1
-            transaction.set(ref, {"start": start, "count": count, "updated": now})
-            return True, max(limit - count, 0), 0
+        # 1) Atomically increment the counter.
+        ref.update(
+            {
+                "count": firestore.Increment(1),
+                "updated": now,
+            }
+        )
+        snap = ref.get()
+        data = snap.to_dict() or {}
+        start = data.get("start", now)
+        count = data.get("count", 0)
 
-        wrapped = firestore.transactional(_apply)
-        return wrapped(txn)
+        # 2) If the window has expired, reset atomically (transaction). This
+        #    runs at most once per window, so transaction reuse is a non-issue.
+        if now - start >= self.window:
+            txn = self.db.transaction()
+
+            @firestore.transactional
+            def _reset(transaction):
+                s = ref.get(transaction=transaction).to_dict() or {}
+                if now - s.get("start", now) >= self.window:
+                    transaction.set(
+                        ref,
+                        {"start": now, "count": 1, "updated": now},
+                    )
+                    return True, limit - 1, 0
+                # Another request already reset it; re-check its count.
+                c = s.get("count", 0)
+                if c >= limit:
+                    retry = int(self.window - (now - s.get("start", now))) + 1
+                    return False, 0, max(retry, 1)
+                return True, max(limit - c, 0), 0
+
+            return _reset(txn)
+
+        if count >= limit:
+            retry = int(self.window - (now - start)) + 1
+            return False, 0, max(retry, 1)
+        return True, max(limit - count, 0), 0
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
