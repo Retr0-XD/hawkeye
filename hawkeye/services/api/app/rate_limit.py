@@ -70,7 +70,7 @@ class _FirestoreStore:
         self.db = db
         self.window = window
         self._col = db.collection(_COLLECTION)
-        self._txn = db.transaction()
+        self._firestore = firestore
 
     def check_and_increment(self, key: str, limit: int):
         from google.cloud import firestore
@@ -93,7 +93,9 @@ class _FirestoreStore:
             transaction.set(ref, {"start": start, "count": count, "updated": now})
             return True, max(limit - count, 0), 0
 
-        return _apply(self._txn)
+        # A Firestore transaction can only be run once, so build a fresh one
+        # per request.
+        return _apply(self.db.transaction())
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
