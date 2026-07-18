@@ -1,0 +1,12 @@
+# Cloud Build config for ML Service (remote build, no local Docker).
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "us-central1-docker.pkg.dev/dice-master-the-platform/hawkeye/ml:latest"
+      - "."
+images:
+  - "us-central1-docker.pkg.dev/dice-master-the-platform/hawkeye/ml:latest"
+options:
+  logging: CLOUD_LOGGING_ONLY

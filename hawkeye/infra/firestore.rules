@@ -1,0 +1,49 @@
+rules_version = '2';
+
+// Hawkeye Firestore security rules.
+// MVP: the demo dashboard is read-only and public; writes are restricted to
+// the Hawkeye service accounts. When user OAuth lands (Week 7+), tighten
+// /resources and /costs with request.auth != null and project-scoped filters.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Public, read-only demo data.
+    match /resources/{resourceId} {
+      allow read: if true;
+      allow write: if isHawkeyeService();
+    }
+    match /costs/{costId} {
+      allow read: if true;
+      allow write: if isHawkeyeService();
+    }
+    match /recommendations/{recId} {
+      allow read: if true;
+      allow write: if isHawkeyeService();
+    }
+    match /resource_graph/{docId} {
+      allow read: if true;
+      allow write: if isHawkeyeService();
+    }
+    match /metrics/{docId} {
+      allow read: if true;
+      allow write: if isHawkeyeService();
+    }
+
+    // Sensitive collections: service-only (audit logs, alerts, state).
+    match /audit_logs/{logId} {
+      allow read, write: if isHawkeyeService();
+    }
+    match /alerts/{alertId} {
+      allow read: if true;
+      allow write: if isHawkeyeService();
+    }
+    match /{document=**} {
+      allow read, write: if isHawkeyeService();
+    }
+
+    function isHawkeyeService() {
+      return request.auth != null
+        && request.auth.token.email == '78803747777-compute@developer.gserviceaccount.com';
+    }
+  }
+}

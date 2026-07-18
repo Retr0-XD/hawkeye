@@ -1,0 +1,24 @@
+# Hawkeye Ingestion Service - Python dependencies
+# Pinned to versions validated against GCP client libraries (2024-2025).
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# GCP client libraries
+google-cloud-compute>=1.20.0
+google-cloud-storage==2.18.2
+google-cloud-monitoring==2.22.0
+google-cloud-pubsub==2.25.0
+google-cloud-firestore==2.19.0
+google-cloud-bigquery==3.25.0
+google-cloud-container==2.51.0
+google-auth==2.35.0
+google-cloud-logging==3.11.0
+
+# Generic Discovery client (Cloud SQL Admin, Cloud Run Admin, Cloud Functions)
+google-api-python-client==2.147.0
+google-auth-httplib2==0.2.0
+
+# Resilience + scheduling
+tenacity==9.0.0

@@ -1,0 +1,30 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# ---- Node / frontends ----
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ---- Secrets / env ----
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---- Build / OS ----
+*.log
+.DS_Store
+Thumbs.db
+
+# ---- Unused experiment assets (not referenced by the app) ----
+20457670.gif
+deep-space-4k-gl.jpg
+something.jpg
+image.png

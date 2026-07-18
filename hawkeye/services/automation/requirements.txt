@@ -1,0 +1,8 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+google-cloud-firestore==2.18.0
+google-cloud-pubsub==2.21.0
+google-cloud-run==0.10.2
+google-auth==2.36.0

@@ -1,0 +1,13 @@
+# Cloud Build config: build the ingestion image remotely (no local Docker needed).
+# Free tier: 120 build-minutes/day.
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - "build"
+      - "-t"
+      - "us-central1-docker.pkg.dev/dice-master-the-platform/hawkeye/ingestion:latest"
+      - "."
+images:
+  - "us-central1-docker.pkg.dev/dice-master-the-platform/hawkeye/ingestion:latest"
+options:
+  logging: CLOUD_LOGGING_ONLY
