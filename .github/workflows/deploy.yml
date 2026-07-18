@@ -25,6 +25,11 @@
 #   gcloud iam service-accounts add-iam-policy-binding github-deployer@... \
 #     --role=roles/iam.workloadIdentityUser \
 #     --member="principalSet://iam.googleapis.com/projects/<NUM>/locations/global/workloadIdentityPools/github-pool/attribute.repository/Retr0-XD/hawkeye"
+#
+# NOTE: builds are submitted with --async and their status is polled via
+# `gcloud builds describe` (which does NOT stream logs). This avoids the
+# "could not stream logs" failure that occurs under VPC-SC even though the
+# build itself succeeds.
 
 name: Deploy to Cloud Run
 
@@ -63,62 +68,167 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
-      # --- Build + deploy each service via Cloud Build ---
+      # Helper: submit a Cloud Build asynchronously and poll its status
+      # (without streaming logs, which fails under VPC-SC).
       - name: Deploy api
         run: |
-          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
-            --tag=$IMAGE/api:latest ${{ github.workspace }}/hawkeye/services/api
+          submit_build () {
+            local svc="$1"; local src="$2"; local extra="$3"
+            local id
+            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            echo "build $id for $svc"
+            local status=""
+            for i in $(seq 1 90); do
+              status=$(gcloud builds describe "$id" --region=$REGION --project=$PROJECT_ID --format="value(status)" 2>/dev/null)
+              if [ "$status" = "SUCCESS" ] || [ "$status" = "FAILURE" ] || [ "$status" = "TIMEOUT" ] || [ "$status" = "CANCELLED" ]; then break; fi
+              sleep 5
+            done
+            if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
+          }
+          submit_build api "${{ github.workspace }}/hawkeye/services/api"
           gcloud run services update hawkeye-api --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/api:latest \
             --set-env-vars="HAWKEYE_OAUTH_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }},HAWKEYE_ALLOWED_EMAILS=,HAWKEYE_CREDS_KEY=${{ secrets.HAWKEYE_CREDS_KEY }}"
 
       - name: Deploy frontend-user
         run: |
-          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
-            --tag=$IMAGE/frontend-user:latest ${{ github.workspace }}/hawkeye/services/frontend-user \
-            --build-env-vars="^@^VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }},VITE_GOOGLE_CLIENT_SECRET=${{ secrets.VITE_GOOGLE_CLIENT_SECRET }},VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
+          submit_build () {
+            local svc="$1"; local src="$2"; local extra="$3"
+            local id
+            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            echo "build $id for $svc"
+            local status=""
+            for i in $(seq 1 90); do
+              status=$(gcloud builds describe "$id" --region=$REGION --project=$PROJECT_ID --format="value(status)" 2>/dev/null)
+              if [ "$status" = "SUCCESS" ] || [ "$status" = "FAILURE" ] || [ "$status" = "TIMEOUT" ] || [ "$status" = "CANCELLED" ]; then break; fi
+              sleep 5
+            done
+            if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
+          }
+          submit_build frontend-user "${{ github.workspace }}/hawkeye/services/frontend-user" \
+            "--build-env-vars=^@^VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }},VITE_GOOGLE_CLIENT_SECRET=${{ secrets.VITE_GOOGLE_CLIENT_SECRET }},VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
           gcloud run services update hawkeye-frontend-user --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/frontend-user:latest
 
       - name: Deploy frontend-demo
         run: |
-          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
-            --tag=$IMAGE/frontend-demo:latest ${{ github.workspace }}/hawkeye/services/frontend-demo \
-            --build-env-vars="^@^VITE_DEMO_STUB=1,VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
+          submit_build () {
+            local svc="$1"; local src="$2"; local extra="$3"
+            local id
+            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            echo "build $id for $svc"
+            local status=""
+            for i in $(seq 1 90); do
+              status=$(gcloud builds describe "$id" --region=$REGION --project=$PROJECT_ID --format="value(status)" 2>/dev/null)
+              if [ "$status" = "SUCCESS" ] || [ "$status" = "FAILURE" ] || [ "$status" = "TIMEOUT" ] || [ "$status" = "CANCELLED" ]; then break; fi
+              sleep 5
+            done
+            if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
+          }
+          submit_build frontend-demo "${{ github.workspace }}/hawkeye/services/frontend-demo" \
+            "--build-env-vars=^@^VITE_DEMO_STUB=1,VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
           gcloud run services update hawkeye-frontend-demo --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/frontend-demo:latest
 
       - name: Deploy ml
         run: |
-          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
-            --tag=$IMAGE/ml:latest ${{ github.workspace }}/hawkeye/services/ml
+          submit_build () {
+            local svc="$1"; local src="$2"; local extra="$3"
+            local id
+            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            echo "build $id for $svc"
+            local status=""
+            for i in $(seq 1 90); do
+              status=$(gcloud builds describe "$id" --region=$REGION --project=$PROJECT_ID --format="value(status)" 2>/dev/null)
+              if [ "$status" = "SUCCESS" ] || [ "$status" = "FAILURE" ] || [ "$status" = "TIMEOUT" ] || [ "$status" = "CANCELLED" ]; then break; fi
+              sleep 5
+            done
+            if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
+          }
+          submit_build ml "${{ github.workspace }}/hawkeye/services/ml"
           gcloud run services update hawkeye-ml --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/ml:latest
 
       - name: Deploy processing
         run: |
-          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
-            --tag=$IMAGE/processing:latest ${{ github.workspace }}/hawkeye/services/processing
+          submit_build () {
+            local svc="$1"; local src="$2"; local extra="$3"
+            local id
+            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            echo "build $id for $svc"
+            local status=""
+            for i in $(seq 1 90); do
+              status=$(gcloud builds describe "$id" --region=$REGION --project=$PROJECT_ID --format="value(status)" 2>/dev/null)
+              if [ "$status" = "SUCCESS" ] || [ "$status" = "FAILURE" ] || [ "$status" = "TIMEOUT" ] || [ "$status" = "CANCELLED" ]; then break; fi
+              sleep 5
+            done
+            if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
+          }
+          submit_build processing "${{ github.workspace }}/hawkeye/services/processing"
           gcloud run services update hawkeye-processing --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/processing:latest
 
       - name: Deploy ingestion
         run: |
-          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
-            --tag=$IMAGE/ingestion:latest ${{ github.workspace }}/hawkeye/services/ingestion
+          submit_build () {
+            local svc="$1"; local src="$2"; local extra="$3"
+            local id
+            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            echo "build $id for $svc"
+            local status=""
+            for i in $(seq 1 90); do
+              status=$(gcloud builds describe "$id" --region=$REGION --project=$PROJECT_ID --format="value(status)" 2>/dev/null)
+              if [ "$status" = "SUCCESS" ] || [ "$status" = "FAILURE" ] || [ "$status" = "TIMEOUT" ] || [ "$status" = "CANCELLED" ]; then break; fi
+              sleep 5
+            done
+            if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
+          }
+          submit_build ingestion "${{ github.workspace }}/hawkeye/services/ingestion"
           gcloud run services update hawkeye-ingestion --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/ingestion:latest
 
       - name: Deploy automation
         run: |
-          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
-            --tag=$IMAGE/automation:latest ${{ github.workspace }}/hawkeye/services/automation
+          submit_build () {
+            local svc="$1"; local src="$2"; local extra="$3"
+            local id
+            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            echo "build $id for $svc"
+            local status=""
+            for i in $(seq 1 90); do
+              status=$(gcloud builds describe "$id" --region=$REGION --project=$PROJECT_ID --format="value(status)" 2>/dev/null)
+              if [ "$status" = "SUCCESS" ] || [ "$status" = "FAILURE" ] || [ "$status" = "TIMEOUT" ] || [ "$status" = "CANCELLED" ]; then break; fi
+              sleep 5
+            done
+            if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
+          }
+          submit_build automation "${{ github.workspace }}/hawkeye/services/automation"
           gcloud run services update hawkeye-automation --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/automation:latest
 
       - name: Deploy budget-guard
         run: |
-          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
-            --tag=$IMAGE/budget-guard:latest ${{ github.workspace }}/hawkeye/services/budget-guard
+          submit_build () {
+            local svc="$1"; local src="$2"; local extra="$3"
+            local id
+            id=$(gcloud builds submit --async --region=$REGION --project=$PROJECT_ID \
+                  --tag=$IMAGE/$svc:latest "$src" $extra --format="value(id)")
+            echo "build $id for $svc"
+            local status=""
+            for i in $(seq 1 90); do
+              status=$(gcloud builds describe "$id" --region=$REGION --project=$PROJECT_ID --format="value(status)" 2>/dev/null)
+              if [ "$status" = "SUCCESS" ] || [ "$status" = "FAILURE" ] || [ "$status" = "TIMEOUT" ] || [ "$status" = "CANCELLED" ]; then break; fi
+              sleep 5
+            done
+            if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
+          }
+          submit_build budget-guard "${{ github.workspace }}/hawkeye/services/budget-guard"
           gcloud run services update hawkeye-budget-guard --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/budget-guard:latest
