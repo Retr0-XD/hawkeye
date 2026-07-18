@@ -66,7 +66,7 @@ jobs:
       # --- Build + deploy each service via Cloud Build ---
       - name: Deploy api
         run: |
-          gcloud builds submit --no-stream-logs --region=$REGION --project=$PROJECT_ID \
+          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
             --tag=$IMAGE/api:latest ${{ github.workspace }}/hawkeye/services/api
           gcloud run services update hawkeye-api --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/api:latest \
@@ -74,7 +74,7 @@ jobs:
 
       - name: Deploy frontend-user
         run: |
-          gcloud builds submit --no-stream-logs --region=$REGION --project=$PROJECT_ID \
+          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
             --tag=$IMAGE/frontend-user:latest ${{ github.workspace }}/hawkeye/services/frontend-user \
             --build-env-vars="^@^VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }},VITE_GOOGLE_CLIENT_SECRET=${{ secrets.VITE_GOOGLE_CLIENT_SECRET }},VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
           gcloud run services update hawkeye-frontend-user --region=$REGION --project=$PROJECT_ID \
@@ -82,7 +82,7 @@ jobs:
 
       - name: Deploy frontend-demo
         run: |
-          gcloud builds submit --no-stream-logs --region=$REGION --project=$PROJECT_ID \
+          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
             --tag=$IMAGE/frontend-demo:latest ${{ github.workspace }}/hawkeye/services/frontend-demo \
             --build-env-vars="^@^VITE_DEMO_STUB=1,VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
           gcloud run services update hawkeye-frontend-demo --region=$REGION --project=$PROJECT_ID \
@@ -90,35 +90,35 @@ jobs:
 
       - name: Deploy ml
         run: |
-          gcloud builds submit --no-stream-logs --region=$REGION --project=$PROJECT_ID \
+          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
             --tag=$IMAGE/ml:latest ${{ github.workspace }}/hawkeye/services/ml
           gcloud run services update hawkeye-ml --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/ml:latest
 
       - name: Deploy processing
         run: |
-          gcloud builds submit --no-stream-logs --region=$REGION --project=$PROJECT_ID \
+          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
             --tag=$IMAGE/processing:latest ${{ github.workspace }}/hawkeye/services/processing
           gcloud run services update hawkeye-processing --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/processing:latest
 
       - name: Deploy ingestion
         run: |
-          gcloud builds submit --no-stream-logs --region=$REGION --project=$PROJECT_ID \
+          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
             --tag=$IMAGE/ingestion:latest ${{ github.workspace }}/hawkeye/services/ingestion
           gcloud run services update hawkeye-ingestion --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/ingestion:latest
 
       - name: Deploy automation
         run: |
-          gcloud builds submit --no-stream-logs --region=$REGION --project=$PROJECT_ID \
+          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
             --tag=$IMAGE/automation:latest ${{ github.workspace }}/hawkeye/services/automation
           gcloud run services update hawkeye-automation --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/automation:latest
 
       - name: Deploy budget-guard
         run: |
-          gcloud builds submit --no-stream-logs --region=$REGION --project=$PROJECT_ID \
+          gcloud builds submit --suppress-logs --region=$REGION --project=$PROJECT_ID \
             --tag=$IMAGE/budget-guard:latest ${{ github.workspace }}/hawkeye/services/budget-guard
           gcloud run services update hawkeye-budget-guard --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/budget-guard:latest
