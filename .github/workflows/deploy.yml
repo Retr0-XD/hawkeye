@@ -113,7 +113,7 @@ jobs:
             if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
           }
           submit_build frontend-user "${{ github.workspace }}/hawkeye/services/frontend-user" \
-            "--config=cloudbuild.yaml --substitutions=_VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }},_VITE_GOOGLE_CLIENT_SECRET=${{ secrets.VITE_GOOGLE_CLIENT_SECRET }},_VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
+            "--config=${{ github.workspace }}/hawkeye/services/frontend-user/cloudbuild.yaml --substitutions=_VITE_GOOGLE_CLIENT_ID=${{ secrets.VITE_GOOGLE_CLIENT_ID }},_VITE_GOOGLE_CLIENT_SECRET=${{ secrets.VITE_GOOGLE_CLIENT_SECRET }},_VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
           gcloud run services update hawkeye-frontend-user --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/frontend-user:latest
 
@@ -139,7 +139,7 @@ jobs:
             if [ "$status" != "SUCCESS" ]; then echo "BUILD FAILED ($svc): $status"; exit 1; fi
           }
           submit_build frontend-demo "${{ github.workspace }}/hawkeye/services/frontend-demo" \
-            "--config=cloudbuild.yaml --substitutions=_VITE_DEMO_STUB=1,_VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
+            "--config=${{ github.workspace }}/hawkeye/services/frontend-demo/cloudbuild.yaml --substitutions=_VITE_DEMO_STUB=1,_VITE_API_BASE=${{ secrets.VITE_API_BASE }}"
           gcloud run services update hawkeye-frontend-demo --region=$REGION --project=$PROJECT_ID \
             --image=$IMAGE/frontend-demo:latest
 
