@@ -85,7 +85,37 @@ class _FirestoreStore:
         now = time.time()
         ref = self._col.document(key)
 
-        # 1) Atomically increment the counter.
+        # Read current state. If the doc is missing or its window has expired,
+        # (re)create it atomically via a transaction and treat this request as
+        # the first of the new window.
+        snap = ref.get()
+        data = snap.to_dict() or {}
+        start = data.get("start", 0)
+        if not snap.exists or (now - start) >= self.window:
+            txn = self.db.transaction()
+
+            @firestore.transactional
+            def _reset(transaction):
+                cur = ref.get(transaction=transaction)
+                s = cur.to_dict() or {}
+                if (not cur.exists) or (now - s.get("start", 0)) >= self.window:
+                    # (Re)create the window with this request as the first hit.
+                    transaction.set(
+                        ref,
+                        {"start": now, "count": 1, "updated": now},
+                    )
+                    return True, limit - 1, 0
+                # Another request already reset it within the race; fall through
+                # to the normal increment path below.
+                return None
+
+            result = _reset(txn)
+            if result is not None:
+                return result
+
+        # Hot path: atomically increment the counter. ``increment()`` works on
+        # both existing docs and (when combined with the reset above) freshly
+        # created ones, and is contention-safe across instances.
         ref.update(
             {
                 "count": firestore.Increment(1),
@@ -93,35 +123,9 @@ class _FirestoreStore:
             }
         )
         snap = ref.get()
-        data = snap.to_dict() or {}
-        start = data.get("start", now)
-        count = data.get("count", 0)
-
-        # 2) If the window has expired, reset atomically (transaction). This
-        #    runs at most once per window, so transaction reuse is a non-issue.
-        if now - start >= self.window:
-            txn = self.db.transaction()
-
-            @firestore.transactional
-            def _reset(transaction):
-                s = ref.get(transaction=transaction).to_dict() or {}
-                if now - s.get("start", now) >= self.window:
-                    transaction.set(
-                        ref,
-                        {"start": now, "count": 1, "updated": now},
-                    )
-                    return True, limit - 1, 0
-                # Another request already reset it; re-check its count.
-                c = s.get("count", 0)
-                if c >= limit:
-                    retry = int(self.window - (now - s.get("start", now))) + 1
-                    return False, 0, max(retry, 1)
-                return True, max(limit - c, 0), 0
-
-            return _reset(txn)
-
+        count = snap.to_dict().get("count", 0)
         if count >= limit:
-            retry = int(self.window - (now - start)) + 1
+            retry = int(self.window - (now - snap.to_dict().get("start", now))) + 1
             return False, 0, max(retry, 1)
         return True, max(limit - count, 0), 0
 
