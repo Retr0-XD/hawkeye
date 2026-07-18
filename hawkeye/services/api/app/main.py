@@ -37,11 +37,15 @@ from .queries import (
 )
 from .user import router as user_router
 from .gcp_user_router import router as gcp_user_router
+from .rate_limit import RateLimitMiddleware
 
 logging.basicConfig(level=get_settings().log_level)
 logger = logging.getLogger("hawkeye.api.main")
 
 app = FastAPI(title="Hawkeye API Service", version="1.0.0")
+
+# Rate limiting (per client IP) — added before CORS so 429s are consistent.
+app.add_middleware(RateLimitMiddleware)
 
 # CORS: restrict to the known Hawkeye frontend origins. The user console and
 # demo are served from Cloud Run; add other origins (Vercel, custom domain) here.

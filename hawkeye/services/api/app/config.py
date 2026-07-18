@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # Comma-separated allow-list of emails. Empty = allow any verified Google account.
     allowed_emails: str = ""
 
+    # Rate limiting (per client IP, fixed-window). Set HAWKEYE_RATE_LIMIT_ENABLED=false to disable.
+    rate_limit_enabled: str = "true"
+    rate_limit_max: int = 120        # requests per window for public endpoints
+    rate_limit_window: int = 60      # window length in seconds
+    rate_limit_auth_max: int = 300   # requests per window for authenticated user endpoints
+
     log_level: str = "INFO"
 
 
