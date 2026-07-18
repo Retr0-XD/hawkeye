@@ -1,17 +1,30 @@
 # Hawkeye — auto-deploy to Cloud Run on push to main.
 #
 # Each service is built remotely by Cloud Build (no Docker needed in CI) and
-# rolled out to Cloud Run. Secrets are NEVER committed; the GCP credentials
-# live in the GitHub repo secret GCP_SA_KEY (a service-account JSON key with
-# Cloud Build + Cloud Run + Artifact Registry + Service Account User roles).
+# rolled out to Cloud Run. Authentication uses Workload Identity Federation
+# (OIDC) — NO service-account JSON key is used, which satisfies the
+# iam.disableServiceAccountKeyCreation org policy. The deploy service account
+# is impersonated via the WIF pool, so no long-lived key ever exists.
 #
-# Required GitHub Secrets:
-#   GCP_SA_KEY        - JSON key for a deploy service account
-#   HAWKEYE_CREDS_KEY - Fernet key used to encrypt per-user GCP credentials
-#                       (same value set on the running API service)
+# Required GitHub Secrets / Variables:
+#   GCP_WIF_PROJECT_NUMBER - numeric project number of dice-master-the-platform
+#   GCP_WIF_POOL          - Workload Identity Pool id (e.g. github-pool)
+#   GCP_WIF_PROVIDER      - WIF provider id (e.g. github-provider)
+#   GCP_SERVICE_ACCOUNT   - deploy SA email (e.g. github-deployer@...)
+#   HAWKEYE_CREDS_KEY     - Fernet key (same value set on the running API)
 #   VITE_GOOGLE_CLIENT_ID    - OAuth Web client ID for frontend-user
 #   VITE_GOOGLE_CLIENT_SECRET- OAuth Web client secret for frontend-user
 #   VITE_API_BASE           - https://hawkeye-api-78803747777.us-central1.run.app
+#
+# One-time setup (no keys created):
+#   gcloud iam workload-identity-pools create github-pool --project=... --location=global
+#   gcloud iam workload-identity-pools providers create-oidc github-provider \
+#     --project=... --location=global --workload-identity-pool=github-pool \
+#     --issuer-uri=https://token.actions.githubusercontent.com \
+#     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository"
+#   gcloud iam service-accounts add-iam-policy-binding github-deployer@... \
+#     --role=roles/iam.workloadIdentityUser \
+#     --member="principalSet://iam.googleapis.com/projects/<NUM>/locations/global/workloadIdentityPools/github-pool/attribute.repository/Retr0-XD/hawkeye"
 
 name: Deploy to Cloud Run
 
@@ -19,6 +32,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # required for OIDC / WIF
 
 env:
   PROJECT_ID: dice-master-the-platform
@@ -29,16 +46,16 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ env.PROJECT_ID }}
+          workload_identity_provider: projects/${{ secrets.GCP_WIF_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ secrets.GCP_WIF_POOL }}/providers/${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
