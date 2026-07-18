@@ -76,8 +76,11 @@ class _FirestoreStore:
         from google.cloud import firestore
 
         now = time.time()
+        txn = self.db.transaction()
 
-        @firestore.transactional
+        # The @transactional decorator binds the transaction on first call and
+        # reuses it, so we define the function fresh each request with the
+        # current transaction captured in scope.
         def _apply(transaction):
             ref = self._col.document(key)
             snap = ref.get(transaction=transaction)
@@ -93,9 +96,8 @@ class _FirestoreStore:
             transaction.set(ref, {"start": start, "count": count, "updated": now})
             return True, max(limit - count, 0), 0
 
-        # A Firestore transaction can only be run once, so build a fresh one
-        # per request.
-        return _apply(self.db.transaction())
+        wrapped = firestore.transactional(_apply)
+        return wrapped(txn)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
